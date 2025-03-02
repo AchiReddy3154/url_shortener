@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>URL Shortener</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        primary: {"50":"#eff6ff","100":"#dbeafe","200":"#bfdbfe","300":"#93c5fd","400":"#60a5fa","500":"#3b82f6","600":"#2563eb","700":"#1d4ed8","800":"#1e40af","900":"#1e3a8a","950":"#172554"}
+                    }
+                }
+            }
+        }
+    </script>
+</head>
+<body class="bg-gray-50 dark:bg-gray-900 min-h-screen">
+    <div class="max-w-4xl mx-auto p-6">
+        <div class="text-center mb-8">
+            <h1 class="text-4xl font-bold text-gray-900 dark:text-white mb-2">URL Shortener</h1>
+            <p class="text-lg text-gray-600 dark:text-gray-400">Create short, memorable links in seconds</p>
+        </div>
+        
+        <div class="bg-white dark:bg-gray-800 rounded-xl shadow-lg overflow-hidden">
+            <!-- Main Form -->
+            <div class="p-6">
+                <div class="space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Long URL</label>
+                        <input type="url" id="longUrl" class="w-full px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white" placeholder="https://example.com/your-long-url">
+                    </div>
+                    
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Custom Code (Optional)</label>
+                            <input type="text" id="customCode" class="w-full px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white" placeholder="e.g., my-link">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Expiration (Days)</label>
+                            <input type="number" id="expirationDays" value="30" class="w-full px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white">
+                        </div>
+                    </div>
+                    
+                    <button onclick="shortenUrl()" class="w-full bg-primary-600 hover:bg-primary-700 text-white font-medium px-4 py-2 rounded-lg transition duration-150 flex items-center justify-center">
+                        <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"></path>
+                        </svg>
+                        Shorten URL
+                    </button>
+                </div>
+            </div>
+            
+            <!-- Results Section -->
+            <div id="result" class="hidden border-t border-gray-200 dark:border-gray-700">
+                <div class="p-6 space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Shortened URL</label>
+                        <div class="flex gap-2">
+                            <input type="text" id="shortUrl" readonly class="flex-1 px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-white">
+                            <button onclick="copyUrl()" class="px-4 py-2 bg-green-600 hover:bg-green-700 text-white font-medium rounded-lg transition duration-150 flex items-center">
+                                <svg class="w-5 h-5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3"></path>
+                                </svg>
+                                Copy
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <!-- QR Code -->
+                    <div id="qrCodeSection" class="hidden">
+                        <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">QR Code</label>
+                        <div class="bg-white p-4 rounded-lg inline-block">
+                            <img id="qrCode" alt="QR Code" class="w-32 h-32">
+                        </div>
+                    </div>
+                    
+                    <!-- Stats -->
+                    <div id="statsSection" class="hidden">
+                        <h3 class="text-lg font-medium text-gray-900 dark:text-white mb-2">Statistics</h3>
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            <div class="bg-gray-50 dark:bg-gray-700 p-4 rounded-lg">
+                                <div class="text-sm text-gray-600 dark:text-gray-400">Total Clicks</div>
+                                <div id="totalClicks" class="text-2xl font-bold text-gray-900 dark:text-white">0</div>
+                            </div>
+                            <div class="bg-gray-50 dark:bg-gray-700 p-4 rounded-lg">
+                                <div class="text-sm text-gray-600 dark:text-gray-400">Created</div>
+                                <div id="createdAt" class="text-sm font-medium text-gray-900 dark:text-white"></div>
+                            </div>
+                            <div class="bg-gray-50 dark:bg-gray-700 p-4 rounded-lg">
+                                <div class="text-sm text-gray-600 dark:text-gray-400">Expires</div>
+                                <div id="expiresAt" class="text-sm font-medium text-gray-900 dark:text-white"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Recent URLs -->
+        <div id="recentUrls" class="mt-8 bg-white dark:bg-gray-800 rounded-xl shadow-lg overflow-hidden hidden">
+            <div class="p-6">
+                <h2 class="text-xl font-bold text-gray-900 dark:text-white mb-4">Recent URLs</h2>
+                <div id="urlList" class="divide-y divide-gray-200 dark:divide-gray-700"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        async function shortenUrl() {
+            const longUrl = document.getElementById('longUrl').value;
+            const customCode = document.getElementById('customCode').value;
+            const expirationDays = parseInt(document.getElementById('expirationDays').value) || 30;
+            
+            if (!longUrl) {
+                showNotification('Please enter a URL', 'error');
+                return;
+            }
+            
+            try {
+                const response = await fetch('/shorten', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        url: longUrl,
+                        custom_code: customCode || undefined,
+                        expiration_days: expirationDays
+                    })
+                });
+
+                const data = await response.json();
+                
+                if (!response.ok) {
+                    throw new Error(data.error || 'Failed to shorten URL');
+                }
+
+                // Show result
+                document.getElementById('result').classList.remove('hidden');
+                document.getElementById('shortUrl').value = data.short_url;
+                
+                // Show QR Code
+                if (data.qr_code) {
+                    document.getElementById('qrCodeSection').classList.remove('hidden');
+                    document.getElementById('qrCode').src = data.qr_code;
+                }
+                
+                // Show Stats
+                document.getElementById('statsSection').classList.remove('hidden');
+                document.getElementById('totalClicks').textContent = data.stats.clicks;
+                document.getElementById('createdAt').textContent = new Date(data.stats.created_at).toLocaleDateString();
+                document.getElementById('expiresAt').textContent = new Date(data.expiry_date).toLocaleDateString();
+                
+                // Update recent URLs
+                loadRecentUrls();
+                
+                showNotification('URL shortened successfully!');
+            } catch (error) {
+                showNotification(error.message, 'error');
+            }
+        }
+
+        function copyUrl() {
+            const shortUrl = document.getElementById('shortUrl');
+            shortUrl.select();
+            document.execCommand('copy');
+            showNotification('URL copied to clipboard!');
+        }
+        
+        async function loadRecentUrls() {
+            try {
+                const response = await fetch('/urls');
+                const urls = await response.json();
+                
+                if (urls.length > 0) {
+                    document.getElementById('recentUrls').classList.remove('hidden');
+                    const urlList = document.getElementById('urlList');
+                    urlList.innerHTML = urls.map(url => `
+                        <div class="py-4">
+                            <div class="flex justify-between items-start">
+                                <div class="flex-1 mr-4">
+                                    <div class="text-sm font-medium text-gray-900 dark:text-white">${url.short_url}</div>
+                                    <div class="text-sm text-gray-500 dark:text-gray-400 truncate">${url.long_url}</div>
+                                </div>
+                                <div class="text-sm text-gray-500 dark:text-gray-400">
+                                    ${url.clicks} clicks
+                                </div>
+                            </div>
+                        </div>
+                    `).join('');
+                }
+            } catch (error) {
+                console.error('Error loading recent URLs:', error);
+            }
+        }
+        
+        function showNotification(message, type = 'success') {
+            const notification = document.createElement('div');
+            notification.className = `fixed bottom-4 right-4 px-6 py-3 rounded-lg text-white ${
+                type === 'success' ? 'bg-green-600' : 'bg-red-600'
+            } transition-opacity duration-300`;
+            notification.textContent = message;
+            document.body.appendChild(notification);
+            
+            setTimeout(() => {
+                notification.style.opacity = '0';
+                setTimeout(() => notification.remove(), 300);
+            }, 3000);
+        }
+        
+        // Load recent URLs on page load
+        loadRecentUrls();
+    </script>
+</body>
+</html>
