@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify, render_template, redirect, abort
+from flask import Flask, request, jsonify, render_template, redirect, abort, session, url_for
 from pymongo import MongoClient
 import random
 import string
@@ -17,6 +17,7 @@ from urllib.parse import urlparse
 import os
 
 app = Flask(__name__)
+app.secret_key = os.getenv('SECRET_KEY', 'your-secret-key-here')  # Change this in production
 
 # MongoDB connection
 MONGODB_URI = os.getenv('MONGODB_URI', 'mongodb://localhost:27017/urlshortener')
@@ -84,6 +85,49 @@ def generate_short_code():
 def index():
     return render_template('index.html')
 
+@app.route('/signin', methods=['GET', 'POST'])
+def signin():
+    if request.method == 'POST':
+        username = request.form.get('username')
+        password = request.form.get('password')
+        
+        user = db.users.find_one({'username': username})
+        if user and check_password(password, user['password']):
+            session['user_id'] = str(user['_id'])
+            session['username'] = username
+            return redirect(url_for('index'))
+        return render_template('signin.html', error='Invalid username or password')
+    
+    return render_template('signin.html')
+
+@app.route('/signup', methods=['GET', 'POST'])
+def signup():
+    if request.method == 'POST':
+        username = request.form.get('username')
+        password = request.form.get('password')
+        
+        if db.users.find_one({'username': username}):
+            return render_template('signup.html', error='Username already exists')
+        
+        user_id = db.users.insert_one({
+            'username': username,
+            'password': hash_password(password),
+            'created_at': datetime.datetime.utcnow(),
+            'urls_created': [],
+            'total_visits': 0
+        }).inserted_id
+        
+        session['user_id'] = str(user_id)
+        session['username'] = username
+        return redirect(url_for('index'))
+    
+    return render_template('signup.html')
+
+@app.route('/signout')
+def signout():
+    session.clear()
+    return redirect(url_for('index'))
+
 @app.route('/shorten', methods=['POST'])
 def shorten_url():
     try:
@@ -91,8 +135,8 @@ def shorten_url():
         long_url = data.get('url')
         custom_code = data.get('custom_code')
         expiration_days = int(data.get('expiration_days', 30))
-        password = data.get('password')  # New: password protection
-        schedule_start = data.get('schedule_start')  # New: URL scheduling
+        password = data.get('password')
+        schedule_start = data.get('schedule_start')
         schedule_end = data.get('schedule_end')
 
         if not long_url:
@@ -103,7 +147,6 @@ def shorten_url():
         if is_malicious:
             return jsonify({"error": f"URL appears unsafe: {message}"}), 400
 
-        # Handle custom code
         if custom_code:
             if db.urls.find_one({"short_code": custom_code}):
                 return jsonify({"error": "Custom code already exists"}), 400
@@ -118,15 +161,17 @@ def shorten_url():
             "created_at": datetime.datetime.utcnow(),
             "expires_at": datetime.datetime.utcnow() + datetime.timedelta(days=expiration_days),
             "clicks": 0,
-            "click_times": [],  # New: store click timestamps
+            "click_times": [],
             "is_active": True
         }
 
-        # Add password if provided
+        # Add user ID if logged in
+        if 'user_id' in session:
+            url_doc['user_id'] = ObjectId(session['user_id'])
+
         if password:
             url_doc["password_hash"] = hash_password(password)
 
-        # Add scheduling if provided
         if schedule_start:
             url_doc["schedule_start"] = datetime.datetime.fromisoformat(schedule_start.replace('Z', '+00:00'))
         if schedule_end:
@@ -145,7 +190,14 @@ def shorten_url():
         qr_code_base64 = base64.b64encode(buffered.getvalue()).decode()
 
         # Save to database
-        db.urls.insert_one(url_doc)
+        result = db.urls.insert_one(url_doc)
+
+        # Update user's urls_created if logged in
+        if 'user_id' in session:
+            db.users.update_one(
+                {'_id': ObjectId(session['user_id'])},
+                {'$push': {'urls_created': result.inserted_id}}
+            )
 
         return jsonify({
             "short_url": short_url,
@@ -196,6 +248,13 @@ def redirect_url(short_code):
             "$push": {"click_times": click_time}
         }
     )
+
+    # Update user's total_visits if URL belongs to a user
+    if url_doc.get('user_id'):
+        db.users.update_one(
+            {'_id': url_doc['user_id']},
+            {'$inc': {'total_visits': 1}}
+        )
 
     return redirect(url_doc["long_url"])
 
@@ -263,6 +322,53 @@ def get_urls():
         url["expires_at"] = url["expires_at"].strftime("%Y-%m-%d %H:%M UTC") if url.get("expires_at") else None
 
     return jsonify(urls)
+
+@app.route('/user/stats')
+def user_stats():
+    if 'user_id' not in session:
+        return redirect(url_for('signin'))
+    
+    user = db.users.find_one({'_id': ObjectId(session['user_id'])})
+    if not user:
+        session.clear()
+        return redirect(url_for('signin'))
+    
+    # Get user's URLs and their stats
+    urls = list(db.urls.find({'user_id': ObjectId(session['user_id'])}))
+    
+    total_clicks = sum(url.get('clicks', 0) for url in urls)
+    urls_created = len(urls)
+    
+    # Get click distribution over time
+    all_clicks = []
+    for url in urls:
+        all_clicks.extend(url.get('click_times', []))
+    
+    # Create time series data for clicks
+    if all_clicks:
+        df = pd.DataFrame({'clicks': all_clicks})
+        df['date'] = pd.to_datetime(df['clicks'])
+        daily_clicks = df.groupby(df['date'].dt.date).size().reset_index()
+        daily_clicks.columns = ['date', 'clicks']
+        
+        fig = px.line(daily_clicks, x='date', y='clicks', 
+                     title='Your URL Clicks Over Time',
+                     labels={'date': 'Date', 'clicks': 'Number of Clicks'})
+        fig.update_layout(
+            paper_bgcolor='rgba(0,0,0,0)',
+            plot_bgcolor='rgba(0,0,0,0)',
+            font_color='#718096'
+        )
+        clicks_chart = fig.to_html(full_html=False)
+    else:
+        clicks_chart = None
+    
+    return render_template('stats.html', 
+                         user=user,
+                         total_clicks=total_clicks,
+                         urls_created=urls_created,
+                         urls=urls,
+                         clicks_chart=clicks_chart)
 
 if __name__ == '__main__':
     app.run(debug=True)
