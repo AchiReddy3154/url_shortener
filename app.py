@@ -9,6 +9,7 @@ import io
 import base64
 import os
 import sys
+import pymongo
 
 app = Flask(__name__)
 
@@ -20,11 +21,19 @@ urls_collection = None
 # MongoDB Atlas connection with better error handling
 try:
     mongodb_uri = os.getenv('MONGODB_URI', 'mongodb://localhost:27017')
-    print(f"Connecting to MongoDB... (URI prefix: {mongodb_uri.split('@')[0].split('://')[0]}://****)")
+    if not mongodb_uri or mongodb_uri == 'mongodb://localhost:27017':
+        print("WARNING: Using default MongoDB URI. Please set MONGODB_URI environment variable!")
+    
+    # Hide sensitive info in logs
+    safe_uri = mongodb_uri.split('@')[0].split('://')[0] + '://' + '****:****@' + mongodb_uri.split('@')[1] if '@' in mongodb_uri else mongodb_uri
+    print(f"Attempting MongoDB connection with URI: {safe_uri}")
+    
     client = MongoClient(mongodb_uri)
     # Test the connection
     client.admin.command('ping')
     print("Successfully connected to MongoDB!")
+    
+    # Get database and collection
     db = client.url_shortener
     urls_collection = db.urls
 
@@ -33,8 +42,21 @@ try:
     urls_collection.create_index('created_at')
     urls_collection.create_index('expires_at')
     print("Successfully created MongoDB indexes")
+    
+    # Print database info
+    print(f"Connected to database: {db.name}")
+    print(f"Available collections: {', '.join(db.list_collection_names())}")
 except Exception as e:
     print(f"Failed to connect to MongoDB: {str(e)}", file=sys.stderr)
+    print("MongoDB connection details:")
+    print(f"- Error type: {type(e).__name__}")
+    print(f"- Error message: {str(e)}")
+    if isinstance(e, pymongo.errors.ConfigurationError):
+        print("This might be due to an invalid connection string format")
+    elif isinstance(e, pymongo.errors.OperationFailure):
+        print("This might be due to invalid credentials")
+    elif isinstance(e, pymongo.errors.ServerSelectionTimeoutError):
+        print("This might be due to network issues or incorrect cluster address")
 
 def ensure_db_connection():
     """Ensure database connection is established"""
