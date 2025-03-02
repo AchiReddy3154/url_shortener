@@ -12,6 +12,11 @@ import sys
 
 app = Flask(__name__)
 
+# Initialize MongoDB variables
+client = None
+db = None
+urls_collection = None
+
 # MongoDB Atlas connection with better error handling
 try:
     mongodb_uri = os.getenv('MONGODB_URI', 'mongodb://localhost:27017')
@@ -22,20 +27,22 @@ try:
     print("Successfully connected to MongoDB!")
     db = client.url_shortener
     urls_collection = db.urls
-except Exception as e:
-    print(f"Failed to connect to MongoDB: {str(e)}", file=sys.stderr)
-    # Don't raise the exception, let the app start but handle errors in routes
 
-# Create indexes
-try:
+    # Create indexes
     urls_collection.create_index('short_code', unique=True)
     urls_collection.create_index('created_at')
     urls_collection.create_index('expires_at')
     print("Successfully created MongoDB indexes")
 except Exception as e:
-    print(f"Failed to create indexes: {str(e)}", file=sys.stderr)
+    print(f"Failed to connect to MongoDB: {str(e)}", file=sys.stderr)
+
+def ensure_db_connection():
+    """Ensure database connection is established"""
+    if urls_collection is None:
+        raise Exception("Database connection not established. Please check your MongoDB URI.")
 
 def generate_short_code(length=6):
+    ensure_db_connection()
     characters = string.ascii_letters + string.digits
     while True:
         code = ''.join(random.choice(characters) for _ in range(length))
@@ -58,6 +65,7 @@ def index():
 @app.route('/shorten', methods=['POST'])
 def shorten_url():
     try:
+        ensure_db_connection()
         print("Received URL shortening request")
         data = request.get_json()
         if not data or 'url' not in data:
@@ -125,6 +133,7 @@ def shorten_url():
 @app.route('/<short_code>')
 def redirect_url(short_code):
     try:
+        ensure_db_connection()
         # Find and update URL document
         url_doc = urls_collection.find_one_and_update(
             {
@@ -159,6 +168,7 @@ def redirect_url(short_code):
 @app.route('/stats/<short_code>')
 def get_url_stats(short_code):
     try:
+        ensure_db_connection()
         url_doc = urls_collection.find_one({'short_code': short_code})
         if not url_doc:
             return jsonify({'error': 'URL not found'}), 404
@@ -179,6 +189,7 @@ def get_url_stats(short_code):
 @app.route('/urls')
 def list_urls():
     try:
+        ensure_db_connection()
         urls = list(urls_collection.find(
             {},
             {'_id': 0, 'short_code': 1, 'long_url': 1, 'clicks': 1, 'created_at': 1}
@@ -214,6 +225,7 @@ def health_check():
 @app.route('/test-db')
 def test_db():
     try:
+        ensure_db_connection()
         # Test MongoDB connection
         client.admin.command('ping')
         
