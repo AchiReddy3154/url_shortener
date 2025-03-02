@@ -1,299 +1,251 @@
-from flask import Flask, request, jsonify, render_template, redirect
+from flask import Flask, request, jsonify, render_template, redirect, abort
 from pymongo import MongoClient
-from datetime import datetime, timedelta
-import string
 import random
-import validators
+import string
+import datetime
 import qrcode
 import io
 import base64
-import os
-import sys
-import pymongo
+from bson import ObjectId
+import bcrypt
+import validators
+import requests
+from bs4 import BeautifulSoup
+import plotly.express as px
+import pandas as pd
+from urllib.parse import urlparse
 
 app = Flask(__name__)
 
-# Initialize MongoDB variables
-client = None
-db = None
-urls_collection = None
+# MongoDB connection
+MONGODB_URI = os.getenv('MONGODB_URI', 'mongodb://localhost:27017/urlshortener')
+client = MongoClient(MONGODB_URI)
+db = client.get_database()
 
-# MongoDB Atlas connection with better error handling
-try:
-    mongodb_uri = os.getenv('MONGODB_URI', 'mongodb://localhost:27017')
-    if not mongodb_uri or mongodb_uri == 'mongodb://localhost:27017':
-        print("WARNING: Using default MongoDB URI. Please set MONGODB_URI environment variable!")
-    
-    # Hide sensitive info in logs
-    safe_uri = mongodb_uri.split('@')[0].split('://')[0] + '://' + '****:****@' + mongodb_uri.split('@')[1] if '@' in mongodb_uri else mongodb_uri
-    print(f"Attempting MongoDB connection with URI: {safe_uri}")
-    
-    client = MongoClient(mongodb_uri)
-    # Test the connection
-    client.admin.command('ping')
-    print("Successfully connected to MongoDB!")
-    
-    # Get database and collection
-    db = client.url_shortener
-    urls_collection = db.urls
+def is_url_malicious(url):
+    try:
+        # Basic URL validation
+        if not validators.url(url):
+            return True, "Invalid URL format"
+            
+        # Check URL parsing
+        parsed = urlparse(url)
+        if not all([parsed.scheme, parsed.netloc]):
+            return True, "Invalid URL structure"
+            
+        # Check for common malicious patterns
+        suspicious_patterns = [
+            'phishing', 'malware', 'virus', 'hack', 
+            '.exe', '.dll', '.bat', '.cmd', '.scr'
+        ]
+        if any(pattern in url.lower() for pattern in suspicious_patterns):
+            return True, "URL contains suspicious patterns"
+            
+        # Fetch and check webpage content (optional, might slow down URL creation)
+        response = requests.get(url, timeout=5, verify=True)
+        soup = BeautifulSoup(response.text, 'html.parser')
+        
+        # Check for suspicious meta content
+        meta_tags = soup.find_all('meta')
+        suspicious_meta = ['phishing', 'malware', 'virus']
+        for tag in meta_tags:
+            content = tag.get('content', '').lower()
+            if any(term in content for term in suspicious_meta):
+                return True, "Webpage contains suspicious content"
+                
+        return False, "URL appears safe"
+    except Exception as e:
+        return True, f"Error checking URL: {str(e)}"
 
-    # Create indexes
-    urls_collection.create_index('short_code', unique=True)
-    urls_collection.create_index('created_at')
-    urls_collection.create_index('expires_at')
-    print("Successfully created MongoDB indexes")
-    
-    # Print database info
-    print(f"Connected to database: {db.name}")
-    print(f"Available collections: {', '.join(db.list_collection_names())}")
-except Exception as e:
-    print(f"Failed to connect to MongoDB: {str(e)}", file=sys.stderr)
-    print("MongoDB connection details:")
-    print(f"- Error type: {type(e).__name__}")
-    print(f"- Error message: {str(e)}")
-    if isinstance(e, pymongo.errors.ConfigurationError):
-        print("This might be due to an invalid connection string format")
-    elif isinstance(e, pymongo.errors.OperationFailure):
-        print("This might be due to invalid credentials")
-    elif isinstance(e, pymongo.errors.ServerSelectionTimeoutError):
-        print("This might be due to network issues or incorrect cluster address")
+def hash_password(password):
+    return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt())
 
-def ensure_db_connection():
-    """Ensure database connection is established"""
-    if urls_collection is None:
-        raise Exception("Database connection not established. Please check your MongoDB URI.")
+def check_password(password, hashed):
+    return bcrypt.checkpw(password.encode('utf-8'), hashed)
 
-def generate_short_code(length=6):
-    ensure_db_connection()
+def generate_short_code():
     characters = string.ascii_letters + string.digits
     while True:
-        code = ''.join(random.choice(characters) for _ in range(length))
-        if not urls_collection.find_one({'short_code': code}):
+        code = ''.join(random.choices(characters, k=6))
+        if not db.urls.find_one({"short_code": code}):
             return code
-
-def generate_qr_code(url):
-    qr = qrcode.QRCode(version=1, box_size=10, border=5)
-    qr.add_data(url)
-    qr.make(fit=True)
-    img = qr.make_image(fill_color="black", back_color="white")
-    buffered = io.BytesIO()
-    img.save(buffered, format="PNG")
-    return f"data:image/png;base64,{base64.b64encode(buffered.getvalue()).decode()}"
 
 @app.route('/')
 def index():
     return render_template('index.html')
 
-@app.route('/debug')
-def debug():
-    """Basic endpoint to test if app is running"""
-    try:
-        mongodb_uri = os.getenv('MONGODB_URI', 'Not Set')
-        # Hide sensitive info in logs
-        safe_uri = mongodb_uri.split('@')[0].split('://')[0] + '://' + '****:****@' + mongodb_uri.split('@')[1] if '@' in mongodb_uri else mongodb_uri
-        return jsonify({
-            'status': 'running',
-            'python_version': sys.version,
-            'mongodb_uri_prefix': safe_uri.split('@')[0] if '@' in safe_uri else 'Not properly formatted',
-            'environment_vars': {k: '****' if k == 'MONGODB_URI' else v for k, v in os.environ.items()}
-        })
-    except Exception as e:
-        return jsonify({
-            'status': 'error',
-            'error': str(e),
-            'python_version': sys.version
-        }), 500
-
 @app.route('/shorten', methods=['POST'])
 def shorten_url():
     try:
-        ensure_db_connection()
-        print("Received URL shortening request")
-        data = request.get_json()
-        if not data or 'url' not in data:
-            print("Error: URL is missing from request")
-            return jsonify({'error': 'URL is required'}), 400
-            
-        long_url = data['url']
+        data = request.json
+        long_url = data.get('url')
         custom_code = data.get('custom_code')
         expiration_days = int(data.get('expiration_days', 30))
-        
-        print(f"Processing URL: {long_url}, Custom code: {custom_code}, Expiration: {expiration_days} days")
-        
-        if not validators.url(long_url):
-            print(f"Error: Invalid URL format - {long_url}")
-            return jsonify({'error': 'Invalid URL'}), 400
-            
-        # Use custom code or generate one
-        short_code = custom_code if custom_code else generate_short_code()
-        
-        # Check if custom code exists
-        if custom_code and urls_collection.find_one({'short_code': custom_code}):
-            print(f"Error: Custom code already exists - {custom_code}")
-            return jsonify({'error': 'Custom code already exists'}), 400
-        
+        password = data.get('password')  # New: password protection
+        schedule_start = data.get('schedule_start')  # New: URL scheduling
+        schedule_end = data.get('schedule_end')
+
+        if not long_url:
+            return jsonify({"error": "URL is required"}), 400
+
+        # Check for malicious URL
+        is_malicious, message = is_url_malicious(long_url)
+        if is_malicious:
+            return jsonify({"error": f"URL appears unsafe: {message}"}), 400
+
+        # Handle custom code
+        if custom_code:
+            if db.urls.find_one({"short_code": custom_code}):
+                return jsonify({"error": "Custom code already exists"}), 400
+            short_code = custom_code
+        else:
+            short_code = generate_short_code()
+
         # Create URL document
         url_doc = {
-            'long_url': long_url,
-            'short_code': short_code,
-            'created_at': datetime.utcnow(),
-            'expires_at': datetime.utcnow() + timedelta(days=expiration_days),
-            'clicks': 0,
-            'last_accessed': None,
-            'user_agent_stats': {}
+            "long_url": long_url,
+            "short_code": short_code,
+            "created_at": datetime.datetime.utcnow(),
+            "expires_at": datetime.datetime.utcnow() + datetime.timedelta(days=expiration_days),
+            "clicks": 0,
+            "click_times": [],  # New: store click timestamps
+            "is_active": True
         }
+
+        # Add password if provided
+        if password:
+            url_doc["password_hash"] = hash_password(password)
+
+        # Add scheduling if provided
+        if schedule_start:
+            url_doc["schedule_start"] = datetime.datetime.fromisoformat(schedule_start.replace('Z', '+00:00'))
+        if schedule_end:
+            url_doc["schedule_end"] = datetime.datetime.fromisoformat(schedule_end.replace('Z', '+00:00'))
+
+        # Generate QR code
+        qr = qrcode.QRCode(version=1, box_size=10, border=5)
+        short_url = request.host_url + short_code
+        qr.add_data(short_url)
+        qr.make(fit=True)
+        qr_image = qr.make_image(fill_color="black", back_color="white")
         
-        print(f"Attempting to save URL document with short code: {short_code}")
-        
+        # Convert QR code to base64
+        buffered = io.BytesIO()
+        qr_image.save(buffered, format="PNG")
+        qr_code_base64 = base64.b64encode(buffered.getvalue()).decode()
+
         # Save to database
-        try:
-            urls_collection.insert_one(url_doc)
-            print(f"Successfully saved URL document")
-        except Exception as db_error:
-            print(f"Database error: {str(db_error)}")
-            return jsonify({'error': 'Database error: ' + str(db_error)}), 500
-        
-        # Generate short URL and QR code
-        short_url = f"{request.host_url}{short_code}"
-        qr_code = generate_qr_code(short_url)
-        
-        print(f"Generated short URL: {short_url}")
-        
+        db.urls.insert_one(url_doc)
+
         return jsonify({
-            'short_url': short_url,
-            'qr_code': qr_code,
-            'expiry_date': url_doc['expires_at'].isoformat(),
-            'stats': {
-                'clicks': 0,
-                'created_at': url_doc['created_at'].isoformat()
+            "short_url": short_url,
+            "qr_code": f"data:image/png;base64,{qr_code_base64}",
+            "expiry_date": url_doc["expires_at"],
+            "stats": {
+                "clicks": 0,
+                "created_at": url_doc["created_at"]
             }
         })
-    except Exception as e:
-        print(f"Unexpected error in shorten_url: {str(e)}")
-        return jsonify({'error': 'Failed to shorten URL: ' + str(e)}), 500
 
-@app.route('/<short_code>')
-def redirect_url(short_code):
-    try:
-        ensure_db_connection()
-        # Find and update URL document
-        url_doc = urls_collection.find_one_and_update(
-            {
-                'short_code': short_code,
-                '$or': [
-                    {'expires_at': {'$gt': datetime.utcnow()}},
-                    {'expires_at': None}
-                ]
-            },
-            {
-                '$inc': {'clicks': 1},
-                '$set': {'last_accessed': datetime.utcnow()},
-                '$push': {
-                    'access_log': {
-                        'timestamp': datetime.utcnow(),
-                        'user_agent': request.user_agent.string,
-                        'ip': request.remote_addr
-                    }
-                }
-            },
-            return_document=True
-        )
-        
-        if not url_doc:
-            return render_template('error.html', message='URL not found or has expired'), 404
-            
-        return redirect(url_doc['long_url'])
     except Exception as e:
-        print(f"Error in redirect: {str(e)}")
-        return render_template('error.html', message='An error occurred'), 500
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/<short_code>', methods=['GET', 'POST'])
+def redirect_url(short_code):
+    url_doc = db.urls.find_one({"short_code": short_code})
+    
+    if not url_doc:
+        abort(404)
+
+    # Check if URL is expired
+    if url_doc.get("expires_at") < datetime.datetime.utcnow():
+        return "This link has expired", 410
+
+    # Check scheduling
+    now = datetime.datetime.utcnow()
+    if url_doc.get("schedule_start") and now < url_doc["schedule_start"]:
+        return "This link is not yet active", 403
+    if url_doc.get("schedule_end") and now > url_doc["schedule_end"]:
+        return "This link has expired", 410
+
+    # Handle password protection
+    if url_doc.get("password_hash"):
+        if request.method == 'GET':
+            return render_template('password.html', short_code=short_code)
+        else:
+            password = request.form.get('password')
+            if not password or not check_password(password, url_doc["password_hash"]):
+                return "Invalid password", 401
+
+    # Update click statistics
+    click_time = datetime.datetime.utcnow()
+    db.urls.update_one(
+        {"_id": url_doc["_id"]},
+        {
+            "$inc": {"clicks": 1},
+            "$push": {"click_times": click_time}
+        }
+    )
+
+    return redirect(url_doc["long_url"])
 
 @app.route('/stats/<short_code>')
-def get_url_stats(short_code):
-    try:
-        ensure_db_connection()
-        url_doc = urls_collection.find_one({'short_code': short_code})
-        if not url_doc:
-            return jsonify({'error': 'URL not found'}), 404
-            
-        stats = {
-            'total_clicks': url_doc['clicks'],
-            'created_at': url_doc['created_at'].isoformat(),
-            'last_accessed': url_doc['last_accessed'].isoformat() if url_doc['last_accessed'] else None,
-            'expires_at': url_doc['expires_at'].isoformat() if url_doc['expires_at'] else None,
-            'is_expired': url_doc['expires_at'] < datetime.utcnow() if url_doc['expires_at'] else False
-        }
+def get_stats(short_code):
+    url_doc = db.urls.find_one({"short_code": short_code})
+    if not url_doc:
+        abort(404)
+
+    # Generate click time graph data
+    click_times = url_doc.get("click_times", [])
+    if click_times:
+        df = pd.DataFrame(click_times, columns=['timestamp'])
+        df['date'] = df['timestamp'].dt.date
+        daily_clicks = df.groupby('date').size().reset_index(name='clicks')
         
-        return jsonify(stats)
-    except Exception as e:
-        print(f"Error in stats: {str(e)}")
-        return jsonify({'error': 'Failed to get stats'}), 500
+        fig = px.line(daily_clicks, x='date', y='clicks', 
+                     title='Click History',
+                     labels={'date': 'Date', 'clicks': 'Number of Clicks'})
+        graph_html = fig.to_html(full_html=False)
+    else:
+        graph_html = "<p>No click data available</p>"
+
+    return render_template(
+        'stats.html',
+        url=url_doc,
+        graph_html=graph_html,
+        total_clicks=url_doc.get("clicks", 0),
+        created_at=url_doc["created_at"],
+        expires_at=url_doc.get("expires_at"),
+        is_password_protected=bool(url_doc.get("password_hash")),
+        schedule_start=url_doc.get("schedule_start"),
+        schedule_end=url_doc.get("schedule_end")
+    )
 
 @app.route('/urls')
-def list_urls():
-    try:
-        ensure_db_connection()
-        urls = list(urls_collection.find(
-            {},
-            {'_id': 0, 'short_code': 1, 'long_url': 1, 'clicks': 1, 'created_at': 1}
-        ).sort('created_at', -1).limit(10))
-        
-        return jsonify([{
-            'short_url': f"{request.host_url}{url['short_code']}",
-            'long_url': url['long_url'],
-            'clicks': url['clicks'],
-            'created_at': url['created_at'].isoformat()
-        } for url in urls])
-    except Exception as e:
-        print(f"Error in list_urls: {str(e)}")
-        return jsonify({'error': 'Failed to list URLs'}), 500
-
-@app.route('/health')
-def health_check():
-    try:
-        # Test MongoDB connection
-        client.admin.command('ping')
-        return jsonify({
-            'status': 'healthy',
-            'mongodb': 'connected',
-            'timestamp': datetime.utcnow().isoformat()
-        })
-    except Exception as e:
-        return jsonify({
-            'status': 'unhealthy',
-            'mongodb': str(e),
-            'timestamp': datetime.utcnow().isoformat()
-        }), 500
-
-@app.route('/test-db')
-def test_db():
-    try:
-        ensure_db_connection()
-        # Test MongoDB connection
-        client.admin.command('ping')
-        
-        # Try to insert a test document
-        test_doc = {
-            'test': True,
-            'timestamp': datetime.utcnow()
-        }
-        result = db.test_collection.insert_one(test_doc)
-        
-        # Clean up the test document
-        db.test_collection.delete_one({'_id': result.inserted_id})
-        
-        return jsonify({
-            'status': 'success',
-            'message': 'MongoDB connection and operations working correctly',
-            'details': {
-                'database': db.name,
-                'collections': db.list_collection_names()
+def get_urls():
+    urls = list(db.urls.find(
+        {},
+        {
+            "short_code": 1,
+            "long_url": 1,
+            "clicks": 1,
+            "created_at": 1,
+            "expires_at": 1,
+            "is_password_protected": {"$exists": "$password_hash"},
+            "has_schedule": {
+                "$or": [
+                    {"$exists": "$schedule_start"},
+                    {"$exists": "$schedule_end"}
+                ]
             }
-        })
-    except Exception as e:
-        return jsonify({
-            'status': 'error',
-            'message': str(e)
-        }), 500
+        }
+    ).sort("created_at", -1).limit(10))
+
+    for url in urls:
+        url["_id"] = str(url["_id"])
+        url["short_url"] = request.host_url + url["short_code"]
+
+    return jsonify(urls)
 
 if __name__ == '__main__':
     app.run(debug=True)

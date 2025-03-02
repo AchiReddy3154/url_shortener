@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>URL Statistics</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background: linear-gradient(135deg, #1a1c2e 0%, #2a2d4c 100%);
+            min-height: 100vh;
+        }
+        .glass-effect {
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.37);
+        }
+        .gradient-text {
+            background: linear-gradient(45deg, #6366f1, #8b5cf6);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+    </style>
+</head>
+<body class="text-gray-100 p-6">
+    <div class="container mx-auto max-w-5xl">
+        <div class="text-center mb-8">
+            <h1 class="text-4xl font-bold mb-2 gradient-text">URL Statistics</h1>
+            <p class="text-gray-400">Detailed analytics for your shortened URL</p>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+            <!-- Total Clicks -->
+            <div class="glass-effect rounded-xl p-6 text-center">
+                <h3 class="text-lg text-gray-400 mb-2">Total Clicks</h3>
+                <p class="text-3xl font-bold gradient-text">{{ total_clicks }}</p>
+            </div>
+
+            <!-- Created Date -->
+            <div class="glass-effect rounded-xl p-6 text-center">
+                <h3 class="text-lg text-gray-400 mb-2">Created On</h3>
+                <p class="text-xl">{{ created_at.strftime('%Y-%m-%d') }}</p>
+            </div>
+
+            <!-- Expiration Date -->
+            <div class="glass-effect rounded-xl p-6 text-center">
+                <h3 class="text-lg text-gray-400 mb-2">Expires On</h3>
+                <p class="text-xl">{{ expires_at.strftime('%Y-%m-%d') }}</p>
+            </div>
+        </div>
+
+        <!-- URL Details -->
+        <div class="glass-effect rounded-xl p-6 mb-8">
+            <h2 class="text-2xl font-semibold mb-4 gradient-text">URL Details</h2>
+            <div class="space-y-4">
+                <div>
+                    <h3 class="text-gray-400 mb-1">Original URL</h3>
+                    <p class="text-white break-all">{{ url.long_url }}</p>
+                </div>
+                <div>
+                    <h3 class="text-gray-400 mb-1">Short URL</h3>
+                    <p class="text-indigo-400">{{ request.host_url + url.short_code }}</p>
+                </div>
+                
+                {% if is_password_protected %}
+                <div class="flex items-center space-x-2">
+                    <svg class="w-5 h-5 text-yellow-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path>
+                    </svg>
+                    <span class="text-yellow-500">Password Protected</span>
+                </div>
+                {% endif %}
+
+                {% if schedule_start or schedule_end %}
+                <div class="flex items-center space-x-2">
+                    <svg class="w-5 h-5 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                    </svg>
+                    <span class="text-blue-500">Scheduled Availability</span>
+                </div>
+                {% if schedule_start %}
+                <p class="text-gray-400">Starts: {{ schedule_start.strftime('%Y-%m-%d %H:%M UTC') }}</p>
+                {% endif %}
+                {% if schedule_end %}
+                <p class="text-gray-400">Ends: {{ schedule_end.strftime('%Y-%m-%d %H:%M UTC') }}</p>
+                {% endif %}
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- Click History Graph -->
+        <div class="glass-effect rounded-xl p-6">
+            <h2 class="text-2xl font-semibold mb-4 gradient-text">Click History</h2>
+            <div class="bg-gray-800/50 rounded-lg p-4">
+                {{ graph_html | safe }}
+            </div>
+        </div>
+    </div>
+</body>
+</html>
