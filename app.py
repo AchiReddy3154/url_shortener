@@ -84,6 +84,26 @@ def generate_qr_code(url):
 def index():
     return render_template('index.html')
 
+@app.route('/root')
+def root():
+    """Basic endpoint to test if app is running"""
+    try:
+        mongodb_uri = os.getenv('MONGODB_URI', 'Not Set')
+        # Hide sensitive info in logs
+        safe_uri = mongodb_uri.split('@')[0].split('://')[0] + '://' + '****:****@' + mongodb_uri.split('@')[1] if '@' in mongodb_uri else mongodb_uri
+        return jsonify({
+            'status': 'running',
+            'python_version': sys.version,
+            'mongodb_uri_prefix': safe_uri.split('@')[0] if '@' in safe_uri else 'Not properly formatted',
+            'environment_vars': {k: '****' if k == 'MONGODB_URI' else v for k, v in os.environ.items()}
+        })
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'error': str(e),
+            'python_version': sys.version
+        }), 500
+
 @app.route('/shorten', methods=['POST'])
 def shorten_url():
     try:
