@@ -1,6 +1,6 @@
 Flask==2.0.1
 Werkzeug==2.0.1
-pymongo==3.12.0
+pymongo[srv]==3.12.0
 python-dotenv==0.19.0
 gunicorn==20.1.0
 qrcode==7.3
@@ -12,3 +12,4 @@ numpy==1.24.3
 pandas==2.0.3
 bcrypt==3.2.0
 validators==0.18.2
+dnspython==2.2.1
