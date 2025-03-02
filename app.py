@@ -24,8 +24,10 @@ try:
     client = MongoClient(MONGODB_URI)
     # Test the connection
     client.admin.command('ping')
-    db = client.get_database()
-    print("Successfully connected to MongoDB!")
+    # Get database name from URI or use default
+    db_name = MONGODB_URI.split('/')[-1].split('?')[0] or 'urlshortener'
+    db = client[db_name]
+    print(f"Successfully connected to MongoDB database: {db_name}")
 except Exception as e:
     print(f"Error connecting to MongoDB: {str(e)}")
     raise
