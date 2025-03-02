@@ -58,15 +58,20 @@ def index():
 @app.route('/shorten', methods=['POST'])
 def shorten_url():
     try:
+        print("Received URL shortening request")
         data = request.get_json()
         if not data or 'url' not in data:
+            print("Error: URL is missing from request")
             return jsonify({'error': 'URL is required'}), 400
             
         long_url = data['url']
         custom_code = data.get('custom_code')
         expiration_days = int(data.get('expiration_days', 30))
         
+        print(f"Processing URL: {long_url}, Custom code: {custom_code}, Expiration: {expiration_days} days")
+        
         if not validators.url(long_url):
+            print(f"Error: Invalid URL format - {long_url}")
             return jsonify({'error': 'Invalid URL'}), 400
             
         # Use custom code or generate one
@@ -74,6 +79,7 @@ def shorten_url():
         
         # Check if custom code exists
         if custom_code and urls_collection.find_one({'short_code': custom_code}):
+            print(f"Error: Custom code already exists - {custom_code}")
             return jsonify({'error': 'Custom code already exists'}), 400
         
         # Create URL document
@@ -87,12 +93,21 @@ def shorten_url():
             'user_agent_stats': {}
         }
         
+        print(f"Attempting to save URL document with short code: {short_code}")
+        
         # Save to database
-        urls_collection.insert_one(url_doc)
+        try:
+            urls_collection.insert_one(url_doc)
+            print(f"Successfully saved URL document")
+        except Exception as db_error:
+            print(f"Database error: {str(db_error)}")
+            return jsonify({'error': 'Database error: ' + str(db_error)}), 500
         
         # Generate short URL and QR code
         short_url = f"{request.host_url}{short_code}"
         qr_code = generate_qr_code(short_url)
+        
+        print(f"Generated short URL: {short_url}")
         
         return jsonify({
             'short_url': short_url,
@@ -104,8 +119,8 @@ def shorten_url():
             }
         })
     except Exception as e:
-        print(f"Error: {str(e)}")
-        return jsonify({'error': 'Failed to shorten URL'}), 500
+        print(f"Unexpected error in shorten_url: {str(e)}")
+        return jsonify({'error': 'Failed to shorten URL: ' + str(e)}), 500
 
 @app.route('/<short_code>')
 def redirect_url(short_code):
