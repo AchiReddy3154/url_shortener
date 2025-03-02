@@ -14,13 +14,21 @@ from bs4 import BeautifulSoup
 import plotly.express as px
 import pandas as pd
 from urllib.parse import urlparse
+import os
 
 app = Flask(__name__)
 
 # MongoDB connection
 MONGODB_URI = os.getenv('MONGODB_URI', 'mongodb://localhost:27017/urlshortener')
-client = MongoClient(MONGODB_URI)
-db = client.get_database()
+try:
+    client = MongoClient(MONGODB_URI)
+    # Test the connection
+    client.admin.command('ping')
+    db = client.get_database()
+    print("Successfully connected to MongoDB!")
+except Exception as e:
+    print(f"Error connecting to MongoDB: {str(e)}")
+    raise
 
 def is_url_malicious(url):
     try:
