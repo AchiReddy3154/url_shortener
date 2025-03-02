@@ -241,19 +241,26 @@ def get_urls():
             "clicks": 1,
             "created_at": 1,
             "expires_at": 1,
-            "is_password_protected": {"$exists": "$password_hash"},
-            "has_schedule": {
-                "$or": [
-                    {"$exists": "$schedule_start"},
-                    {"$exists": "$schedule_end"}
-                ]
-            }
+            "is_password_protected": {"$cond": [{"$ifNull": ["$password_hash", False]}, True, False]},
+            "has_schedule": {"$cond": [
+                {"$or": [
+                    {"$ne": ["$schedule_start", None]},
+                    {"$ne": ["$schedule_end", None]}
+                ]},
+                True,
+                False
+            ]}
         }
     ).sort("created_at", -1).limit(10))
 
+    current_time = datetime.datetime.utcnow()
     for url in urls:
         url["_id"] = str(url["_id"])
         url["short_url"] = request.host_url + url["short_code"]
+        url["is_expired"] = url["expires_at"] < current_time if url.get("expires_at") else False
+        # Format dates for display
+        url["created_at"] = url["created_at"].strftime("%Y-%m-%d %H:%M UTC")
+        url["expires_at"] = url["expires_at"].strftime("%Y-%m-%d %H:%M UTC") if url.get("expires_at") else None
 
     return jsonify(urls)
 
