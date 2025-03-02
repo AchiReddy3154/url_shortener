@@ -101,10 +101,22 @@
         </div>
         
         <!-- Recent URLs -->
-        <div id="recentUrls" class="mt-8 bg-white dark:bg-gray-800 rounded-xl shadow-lg overflow-hidden hidden">
-            <div class="p-6">
-                <h2 class="text-xl font-bold text-gray-900 dark:text-white mb-4">Recent URLs</h2>
-                <div id="urlList" class="divide-y divide-gray-200 dark:divide-gray-700"></div>
+        <div id="recentUrls" class="mt-8">
+            <h2 class="text-2xl font-bold mb-4 text-gray-800 dark:text-gray-200">Recent URLs</h2>
+            <div class="overflow-x-auto">
+                <table class="min-w-full bg-white dark:bg-gray-800 rounded-lg shadow">
+                    <thead>
+                        <tr>
+                            <th class="px-4 py-3 border-b border-gray-200 dark:border-gray-700 text-left text-xs leading-4 font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider w-1/4">Short URL</th>
+                            <th class="px-4 py-3 border-b border-gray-200 dark:border-gray-700 text-left text-xs leading-4 font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider w-2/4">Original URL</th>
+                            <th class="px-4 py-3 border-b border-gray-200 dark:border-gray-700 text-center text-xs leading-4 font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider w-1/8">Clicks</th>
+                            <th class="px-4 py-3 border-b border-gray-200 dark:border-gray-700 text-center text-xs leading-4 font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider w-1/8">Created</th>
+                        </tr>
+                    </thead>
+                    <tbody id="recentUrlsList">
+                        <!-- URLs will be inserted here -->
+                    </tbody>
+                </table>
             </div>
         </div>
     </div>
@@ -121,7 +133,6 @@
             }
             
             try {
-                console.log('Sending request to shorten URL:', longUrl);
                 const response = await fetch('/shorten', {
                     method: 'POST',
                     headers: {
@@ -135,7 +146,6 @@
                 });
 
                 const data = await response.json();
-                console.log('Received response:', data);
                 
                 if (!response.ok) {
                     throw new Error(data.error || 'Failed to shorten URL');
@@ -164,10 +174,6 @@
             } catch (error) {
                 console.error('Error shortening URL:', error);
                 showNotification(error.message, 'error');
-                // Clear the error state after 5 seconds
-                setTimeout(() => {
-                    document.querySelector('.notification')?.remove();
-                }, 5000);
             }
         }
 
@@ -183,27 +189,61 @@
                 const response = await fetch('/urls');
                 const urls = await response.json();
                 
-                if (urls.length > 0) {
-                    document.getElementById('recentUrls').classList.remove('hidden');
-                    const urlList = document.getElementById('urlList');
-                    urlList.innerHTML = urls.map(url => `
-                        <div class="py-4">
-                            <div class="flex justify-between items-start">
-                                <div class="flex-1 mr-4">
-                                    <div class="text-sm font-medium text-gray-900 dark:text-white">${url.short_url}</div>
-                                    <div class="text-sm text-gray-500 dark:text-gray-400 truncate">${url.long_url}</div>
-                                </div>
-                                <div class="text-sm text-gray-500 dark:text-gray-400">
-                                    ${url.clicks} clicks
-                                </div>
+                const tbody = document.getElementById('recentUrlsList');
+                tbody.innerHTML = '';
+                
+                urls.forEach(url => {
+                    const row = document.createElement('tr');
+                    row.className = 'hover:bg-gray-50 dark:hover:bg-gray-700';
+                    row.innerHTML = `
+                        <td class="px-4 py-3 border-b border-gray-200 dark:border-gray-700">
+                            <div class="flex items-center">
+                                <a href="${url.short_url}" class="text-blue-600 dark:text-blue-400 hover:underline truncate max-w-[200px]" target="_blank" title="${url.short_url}">${url.short_url}</a>
+                                <button onclick="copyToClipboard('${url.short_url}')" class="ml-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3"></path>
+                                    </svg>
+                                </button>
                             </div>
-                        </div>
-                    `).join('');
-                }
+                        </td>
+                        <td class="px-4 py-3 border-b border-gray-200 dark:border-gray-700">
+                            <div class="flex items-center">
+                                <span class="text-gray-800 dark:text-gray-200 truncate max-w-[400px]" title="${url.long_url}">${url.long_url}</span>
+                                <a href="${url.long_url}" class="ml-2 text-blue-600 dark:text-blue-400 hover:text-blue-800" target="_blank">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path>
+                                    </svg>
+                                </a>
+                            </div>
+                        </td>
+                        <td class="px-4 py-3 border-b border-gray-200 dark:border-gray-700 text-center">
+                            <span class="text-gray-800 dark:text-gray-200 font-medium">${url.clicks}</span>
+                        </td>
+                        <td class="px-4 py-3 border-b border-gray-200 dark:border-gray-700 text-center">
+                            <span class="text-gray-800 dark:text-gray-200">${new Date(url.created_at).toLocaleDateString()}</span>
+                        </td>
+                    `;
+                    tbody.appendChild(row);
+                });
             } catch (error) {
                 console.error('Error loading recent URLs:', error);
             }
         }
+
+        async function copyToClipboard(text) {
+            try {
+                await navigator.clipboard.writeText(text);
+                showNotification('Copied to clipboard!');
+            } catch (err) {
+                showNotification('Failed to copy', 'error');
+            }
+        }
+
+        // Load recent URLs when page loads
+        loadRecentUrls();
+        
+        // Refresh recent URLs every 30 seconds without affecting the current view
+        setInterval(loadRecentUrls, 30000);
         
         function showNotification(message, type = 'success') {
             const notification = document.createElement('div');
@@ -212,9 +252,6 @@
             document.body.appendChild(notification);
             setTimeout(() => notification.remove(), 5000);
         }
-        
-        // Load recent URLs on page load
-        loadRecentUrls();
     </script>
 </body>
 </html>
