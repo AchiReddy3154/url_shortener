@@ -84,8 +84,8 @@ def generate_qr_code(url):
 def index():
     return render_template('index.html')
 
-@app.route('/root')
-def root():
+@app.route('/debug')
+def debug():
     """Basic endpoint to test if app is running"""
     try:
         mongodb_uri = os.getenv('MONGODB_URI', 'Not Set')
