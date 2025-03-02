@@ -2,7 +2,7 @@ services:
   - type: web
     name: url-shortener
     env: python
-    buildCommand: pip install -r requirements.txt
+    buildCommand: pip install -r requirements.txt --no-cache-dir
     startCommand: gunicorn --config gunicorn.conf.py app:app
     envVars:
       - key: PYTHON_VERSION
@@ -10,4 +10,7 @@ services:
       - key: PORT
         value: 10000
       - key: MONGODB_URI
-        sync: false # This will be set manually in Render dashboard
+        sync: false
+    autoDeploy: true
+    healthCheckPath: /
+    numInstances: 1
