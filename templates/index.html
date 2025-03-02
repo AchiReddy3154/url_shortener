@@ -121,6 +121,7 @@
             }
             
             try {
+                console.log('Sending request to shorten URL:', longUrl);
                 const response = await fetch('/shorten', {
                     method: 'POST',
                     headers: {
@@ -134,6 +135,7 @@
                 });
 
                 const data = await response.json();
+                console.log('Received response:', data);
                 
                 if (!response.ok) {
                     throw new Error(data.error || 'Failed to shorten URL');
@@ -160,7 +162,12 @@
                 
                 showNotification('URL shortened successfully!');
             } catch (error) {
+                console.error('Error shortening URL:', error);
                 showNotification(error.message, 'error');
+                // Clear the error state after 5 seconds
+                setTimeout(() => {
+                    document.querySelector('.notification')?.remove();
+                }, 5000);
             }
         }
 
@@ -200,16 +207,10 @@
         
         function showNotification(message, type = 'success') {
             const notification = document.createElement('div');
-            notification.className = `fixed bottom-4 right-4 px-6 py-3 rounded-lg text-white ${
-                type === 'success' ? 'bg-green-600' : 'bg-red-600'
-            } transition-opacity duration-300`;
+            notification.className = `notification fixed top-4 right-4 p-4 rounded-lg ${type === 'success' ? 'bg-green-500' : 'bg-red-500'} text-white`;
             notification.textContent = message;
             document.body.appendChild(notification);
-            
-            setTimeout(() => {
-                notification.style.opacity = '0';
-                setTimeout(() => notification.remove(), 300);
-            }, 3000);
+            setTimeout(() => notification.remove(), 5000);
         }
         
         // Load recent URLs on page load

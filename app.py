@@ -211,5 +211,35 @@ def health_check():
             'timestamp': datetime.utcnow().isoformat()
         }), 500
 
+@app.route('/test-db')
+def test_db():
+    try:
+        # Test MongoDB connection
+        client.admin.command('ping')
+        
+        # Try to insert a test document
+        test_doc = {
+            'test': True,
+            'timestamp': datetime.utcnow()
+        }
+        result = db.test_collection.insert_one(test_doc)
+        
+        # Clean up the test document
+        db.test_collection.delete_one({'_id': result.inserted_id})
+        
+        return jsonify({
+            'status': 'success',
+            'message': 'MongoDB connection and operations working correctly',
+            'details': {
+                'database': db.name,
+                'collections': db.list_collection_names()
+            }
+        })
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
+
 if __name__ == '__main__':
     app.run(debug=True)
