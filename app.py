@@ -345,30 +345,34 @@ def user_stats():
         all_clicks.extend(url.get('click_times', []))
     
     # Create time series data for clicks
+    clicks_chart = None
     if all_clicks:
-        df = pd.DataFrame({'clicks': all_clicks})
-        df['date'] = pd.to_datetime(df['clicks'])
-        daily_clicks = df.groupby(df['date'].dt.date).size().reset_index()
-        daily_clicks.columns = ['date', 'clicks']
-        
-        fig = px.line(daily_clicks, x='date', y='clicks', 
-                     title='Your URL Clicks Over Time',
-                     labels={'date': 'Date', 'clicks': 'Number of Clicks'})
-        fig.update_layout(
-            paper_bgcolor='rgba(0,0,0,0)',
-            plot_bgcolor='rgba(0,0,0,0)',
-            font_color='#718096'
-        )
-        clicks_chart = fig.to_html(full_html=False)
-    else:
-        clicks_chart = None
+        try:
+            df = pd.DataFrame({'clicks': all_clicks})
+            df['date'] = pd.to_datetime(df['clicks'])
+            daily_clicks = df.groupby(df['date'].dt.date).size().reset_index()
+            daily_clicks.columns = ['date', 'clicks']
+            
+            fig = px.line(daily_clicks, x='date', y='clicks', 
+                         title='Your URL Clicks Over Time',
+                         labels={'date': 'Date', 'clicks': 'Number of Clicks'})
+            fig.update_layout(
+                paper_bgcolor='rgba(0,0,0,0)',
+                plot_bgcolor='rgba(0,0,0,0)',
+                font_color='#718096'
+            )
+            clicks_chart = fig.to_html(full_html=False)
+        except Exception as e:
+            print(f"Error generating chart: {str(e)}")
+            clicks_chart = None
     
     return render_template('stats.html', 
                          user=user,
                          total_clicks=total_clicks,
                          urls_created=urls_created,
                          urls=urls,
-                         clicks_chart=clicks_chart)
+                         clicks_chart=clicks_chart,
+                         now=datetime.datetime.utcnow())
 
 if __name__ == '__main__':
     app.run(debug=True)
