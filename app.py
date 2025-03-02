@@ -8,19 +8,32 @@ import qrcode
 import io
 import base64
 import os
+import sys
 
 app = Flask(__name__)
 
-# MongoDB Atlas connection
-mongodb_uri = os.getenv('MONGODB_URI', 'mongodb://localhost:27017')
-client = MongoClient(mongodb_uri)
-db = client.url_shortener
-urls_collection = db.urls
+# MongoDB Atlas connection with better error handling
+try:
+    mongodb_uri = os.getenv('MONGODB_URI', 'mongodb://localhost:27017')
+    print(f"Connecting to MongoDB... (URI prefix: {mongodb_uri.split('@')[0].split('://')[0]}://****)")
+    client = MongoClient(mongodb_uri)
+    # Test the connection
+    client.admin.command('ping')
+    print("Successfully connected to MongoDB!")
+    db = client.url_shortener
+    urls_collection = db.urls
+except Exception as e:
+    print(f"Failed to connect to MongoDB: {str(e)}", file=sys.stderr)
+    # Don't raise the exception, let the app start but handle errors in routes
 
 # Create indexes
-urls_collection.create_index('short_code', unique=True)
-urls_collection.create_index('created_at')
-urls_collection.create_index('expires_at')
+try:
+    urls_collection.create_index('short_code', unique=True)
+    urls_collection.create_index('created_at')
+    urls_collection.create_index('expires_at')
+    print("Successfully created MongoDB indexes")
+except Exception as e:
+    print(f"Failed to create indexes: {str(e)}", file=sys.stderr)
 
 def generate_short_code(length=6):
     characters = string.ascii_letters + string.digits
@@ -165,6 +178,23 @@ def list_urls():
     except Exception as e:
         print(f"Error in list_urls: {str(e)}")
         return jsonify({'error': 'Failed to list URLs'}), 500
+
+@app.route('/health')
+def health_check():
+    try:
+        # Test MongoDB connection
+        client.admin.command('ping')
+        return jsonify({
+            'status': 'healthy',
+            'mongodb': 'connected',
+            'timestamp': datetime.utcnow().isoformat()
+        })
+    except Exception as e:
+        return jsonify({
+            'status': 'unhealthy',
+            'mongodb': str(e),
+            'timestamp': datetime.utcnow().isoformat()
+        }), 500
 
 if __name__ == '__main__':
     app.run(debug=True)
