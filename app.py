@@ -328,51 +328,79 @@ def user_stats():
     if 'user_id' not in session:
         return redirect(url_for('signin'))
     
-    user = db.users.find_one({'_id': ObjectId(session['user_id'])})
+    # Convert user_id once
+    user_id = ObjectId(session['user_id'])
+    
+    # Use projection to get only needed fields
+    user = db.users.find_one(
+        {'_id': user_id},
+        {'username': 1, 'created_at': 1}
+    )
+    
     if not user:
         session.clear()
         return redirect(url_for('signin'))
     
-    # Get user's URLs and their stats
-    urls = list(db.urls.find({'user_id': ObjectId(session['user_id'])}))
+    # Get user's URLs with specific fields only
+    urls = list(db.urls.find(
+        {'user_id': user_id},
+        {
+            'short_code': 1,
+            'long_url': 1,
+            'created_at': 1,
+            'expires_at': 1,
+            'clicks': 1,
+            'click_times': {'$slice': -100}  # Only get last 100 clicks for chart
+        }
+    ).sort('created_at', -1))  # Sort by creation date
     
     total_clicks = sum(url.get('clicks', 0) for url in urls)
     urls_created = len(urls)
     
-    # Get click distribution over time
-    all_clicks = []
-    for url in urls:
-        all_clicks.extend(url.get('click_times', []))
-    
-    # Create time series data for clicks
+    # Optimize chart generation
     clicks_chart = None
-    if all_clicks:
+    if urls:
         try:
-            df = pd.DataFrame({'clicks': all_clicks})
-            df['date'] = pd.to_datetime(df['clicks'])
-            daily_clicks = df.groupby(df['date'].dt.date).size().reset_index()
-            daily_clicks.columns = ['date', 'clicks']
+            # Collect recent clicks only
+            all_clicks = []
+            for url in urls:
+                all_clicks.extend(url.get('click_times', [])[-100:])  # Last 100 clicks per URL
             
-            fig = px.line(daily_clicks, x='date', y='clicks', 
-                         title='Your URL Clicks Over Time',
-                         labels={'date': 'Date', 'clicks': 'Number of Clicks'})
-            fig.update_layout(
-                paper_bgcolor='rgba(0,0,0,0)',
-                plot_bgcolor='rgba(0,0,0,0)',
-                font_color='#718096'
-            )
-            clicks_chart = fig.to_html(full_html=False)
+            if all_clicks:
+                df = pd.DataFrame({'clicks': all_clicks})
+                df['date'] = pd.to_datetime(df['clicks'])
+                # Group by date and get click counts
+                daily_clicks = df.groupby(df['date'].dt.date).size().reset_index()
+                daily_clicks.columns = ['date', 'clicks']
+                # Limit to last 30 days
+                daily_clicks = daily_clicks.tail(30)
+                
+                fig = px.line(daily_clicks, x='date', y='clicks',
+                            title='URL Clicks (Last 30 Days)',
+                            labels={'date': 'Date', 'clicks': 'Clicks'})
+                fig.update_layout(
+                    paper_bgcolor='rgba(0,0,0,0)',
+                    plot_bgcolor='rgba(0,0,0,0)',
+                    font_color='#718096',
+                    margin=dict(l=40, r=40, t=40, b=40),
+                    height=400
+                )
+                clicks_chart = fig.to_html(
+                    full_html=False,
+                    include_plotlyjs='cdn'  # Load plotly.js from CDN
+                )
         except Exception as e:
             print(f"Error generating chart: {str(e)}")
             clicks_chart = None
     
-    return render_template('stats.html', 
+    now = datetime.datetime.utcnow()
+    return render_template('stats.html',
                          user=user,
                          total_clicks=total_clicks,
                          urls_created=urls_created,
                          urls=urls,
                          clicks_chart=clicks_chart,
-                         now=datetime.datetime.utcnow())
+                         now=now)
 
 if __name__ == '__main__':
     app.run(debug=True)
